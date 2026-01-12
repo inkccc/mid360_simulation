@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <!-- ============================================================
+       Livox Mid-360 激光雷达仿真 URDF 宏定义
+
+       此文件定义了 Mid-360 激光雷达在 Gazebo 仿真中的模型和传感器配置
+       包含激光雷达本体和内置 IMU 的坐标系定义
+
+       ============================================================ -->
+
+  <!-- ============================================================
+       硬编码参数 - 这些参数不可通过宏参数修改
+       基于 Livox Mid-360 官方规格设定
+       ============================================================ -->
+
+  <!-- 数学常量 -->
+  <xacro:property name="M_PI" value="3.1415926"/>
+
+  <!-- 激光雷达测距参数 (基于官方规格) -->
+  <xacro:property name="laser_min_range" value="0.1"/>      <!-- 最小测距: 0.1m -->
+  <xacro:property name="laser_max_range" value="15.0"/>    <!-- 最大测距: 15m -->
+
+  <!-- 点云速率参数 (基于官方规格: 200,000 points/s) -->
+  <xacro:property name="point_rate" value="200000"/>        <!-- 官方点云速率: 200,000 points/s -->
+  <xacro:property name="update_rate" value="10"/>   <!-- 默认发布频率: 10Hz -->
+  <xacro:property name="resolution" value="0.002"/>         <!-- 测距分辨率: 2mm -->
+
+  <!-- 高斯噪声参数 (仿真用) -->
+  <xacro:property name="noise_mean" value="0.0"/>           <!-- 噪声均值 -->
+  <xacro:property name="noise_stddev" value="0.01"/>        <!-- 噪声标准差: 1cm -->
+
+  <!-- 物理属性参数 -->
+  <xacro:property name="mass" value="0.265"/>               <!-- 质量: 265g -->
+
+  <!-- ROS 话题名称 (固定，与真实驱动保持一致) -->
+  <xacro:property name="lidar_topic" value="/livox/lidar"/>
+
+  <!-- ============================================================
+       惯性矩阵计算宏 - 用于动力学仿真
+       ============================================================ -->
+  <xacro:macro name="mid360_inertia" params="m">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="${m}"/>
+      <!-- 简化为圆柱体惯性矩阵近似 -->
+      <inertia ixx="${m*0.001}" ixy="0.0" ixz="0.0"
+               iyy="${m*0.001}" iyz="0.0"
+               izz="${m*0.001}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ============================================================
+       Mid-360 激光雷达宏定义
+
+       可配置参数:
+         - name:   激光雷达 link 名称 (必填)
+         - parent: 父坐标系名称 (必填)
+         - *origin: 相对于父坐标系的位姿 (必填)
+                    包含 xyz (位置) 和 rpy (姿态)
+
+       使用示例:
+         <xacro:include filename="$(find mid360_simulation)/urdf/mid360.xacro"/>
+         <xacro:mid360 name="livox" parent="base_link">
+           <origin xyz="0 0 0.1" rpy="0 0 0"/>
+         </xacro:mid360>
+
+         
+         <xacro:mid360 name="livox" parent="base_link">
+           <origin xyz="0 0 0.1" rpy="0 0 0"/>
+         </xacro:mid360>
+
+       生成的坐标系:
+         - ${name}:     激光雷达主体坐标系 (点云参考系)
+         - ${name}_imu: 内置 IMU 坐标系
+       ============================================================ -->
+  <xacro:macro name="mid360" params="name parent *origin">
+
+    <!-- ==================== 激光雷达主体 Link ==================== -->
+    <link name="${name}">
+      <xacro:mid360_inertia m="${mass}"/>
+
+      <!-- 可视化模型 -->
+      <visual>
+        <origin xyz="0 0 -0.045" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="$(find mid360_simulation)/meshes/livox_frame.STL"/>
+        </geometry>
+        <material name="livox_dark_grey">
+          <color rgba="0.3 0.3 0.3 1"/>
+        </material>
+      </visual>
+
+      <!-- 碰撞模型 -->
+      <collision>
+        <origin xyz="-0.011 -0.02329 -0.005" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="$(find mid360_simulation)/meshes/livox_frame.STL"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- ==================== 激光雷达固定关节 ==================== -->
+    <joint name="${name}_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}"/>
+      <xacro:insert_block name="origin"/>
+    </joint>
+
+    <!-- ==================== IMU 坐标系 ==================== -->
+    <!-- Mid-360 内置 6 轴 IMU (BMI088) -->
+    <link name="${name}_imu"/>
+
+    <!-- IMU 与激光雷达的固定关节 (基于官方外参标定) -->
+    <joint name="${name}_imu_joint" type="fixed">
+      <origin xyz="0.011 0.02329 -0.04412" rpy="0 0 0"/>
+      <parent link="${name}"/>
+      <child link="${name}_imu"/>
+    </joint>
+
+    <!-- ============================================================
+         Gazebo 传感器配置
+         ============================================================ -->
+    <gazebo reference="${name}">
+      <sensor type="ray" name="${name}">
+        <pose>0 0 0 0 0 0</pose>
+        <visualize>true</visualize>
+        <update_rate>${update_rate}</update_rate>
+
+        <!-- Mid-360 点云仿真插件 -->
+        <plugin name="${name}_plugin" filename="libmid360_plugin.so">
+
+          <!-- 射线扫描配置 -->
+          <ray>
+            <scan>
+              <!-- 水平扫描: 360度全向覆盖 -->
+              <horizontal>
+                <samples>100</samples>
+                <resolution>1</resolution>
+                <min_angle>0</min_angle>
+                <max_angle>${2*M_PI}</max_angle>
+              </horizontal>
+
+              <!-- 垂直扫描: -7.22度 到 +55.22度 (非重复扫描) -->
+              <vertical>
+                <samples>360</samples>
+                <resolution>1</resolution>
+                <min_angle>${-7.22/180*M_PI}</min_angle>
+                <max_angle>${55.22/180*M_PI}</max_angle>
+              </vertical>
+            </scan>
+
+            <!-- 测距范围配置 -->
+            <range>
+              <min>${laser_min_range}</min>
+              <max>${laser_max_range}</max>
+              <resolution>${resolution}</resolution>
+            </range>
+
+            <!-- 测量噪声配置 (高斯噪声模型) -->
+            <noise>
+              <type>gaussian</type>
+              <mean>${noise_mean}</mean>
+              <stddev>${noise_stddev}</stddev>
+            </noise>
+          </ray>
+
+          <!-- 插件参数 -->
+          <visualize>false</visualize>
+          <!-- 每帧采样点数 = 官方点云速率 / 发布频率 = 200,000 / update_rate -->
+          <samples>${point_rate / update_rate}</samples>
+          <!-- 降采样因子: 减少实际射线数量以提高性能 -->
+          <!-- 实际射线数 = samples / downsample, 值越大性能越好但精度越低 -->
+          <downsample>10</downsample>
+          <csv_file_name>$(find mid360_simulation)/scan_mode/mid360.csv</csv_file_name>
+          <topic>${lidar_topic}</topic>
+
+        </plugin>
+      </sensor>
+    </gazebo>
+
+  </xacro:macro>
+
+</robot>

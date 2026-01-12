@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mid360_simulation</name>
+  <version>1.0.0</version>
+  <description>
+    Livox Mid-360 激光雷达 Gazebo 仿真插件
+
+    功能特性:
+    - 基于真实 Mid-360 扫描模式的点云仿真
+    - 发布标准 sensor_msgs/PointCloud2 消息
+    - 支持 URDF/Xacro 集成
+    - 包含真实 3D 模型和 IMU 坐标系
+  </description>
+
+  <maintainer email="inkc008@gmail.com">inkc</maintainer>
+  <license>Apache-2.0</license>
+
+  <!-- 构建工具 -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 运行时依赖 -->
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>gazebo</depend>
+  <depend>gazebo_ros</depend>
+  <depend>gazebo_dev</depend>
+
+  <!-- 构建依赖 -->
+  <build_depend>gazebo_plugins</build_depend>
+
+  <!-- 执行依赖 -->
+  <exec_depend>gazebo_plugins</exec_depend>
+
+  <!-- 测试依赖 -->
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
