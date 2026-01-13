@@ -14,7 +14,6 @@
 #include <gazebo/gazebo.hh>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <sensor_msgs/point_cloud_conversion.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 
 #include "mid360_simulation/mid360_ode_multiray_shape.h"

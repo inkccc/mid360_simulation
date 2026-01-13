@@ -19,10 +19,11 @@
 
   <!-- 激光雷达测距参数 (基于官方规格) -->
   <xacro:property name="laser_min_range" value="0.1"/>      <!-- 最小测距: 0.1m -->
-  <xacro:property name="laser_max_range" value="15.0"/>    <!-- 最大测距: 15m -->
+  <xacro:property name="laser_max_range" value="5.0"/>    <!-- 最大测距: 15m -->
 
   <!-- 点云速率参数 (基于官方规格: 200,000 points/s) -->
-  <xacro:property name="point_rate" value="200000"/>        <!-- 官方点云速率: 200,000 points/s -->
+  <!-- 仿真中降低点云速率以提高性能，实际设备为200000 -->
+  <xacro:property name="point_rate" value="200000"/>        <!-- 仿真点云速率: 10,000 points/s -->
   <xacro:property name="update_rate" value="10"/>   <!-- 默认发布频率: 10Hz -->
   <xacro:property name="resolution" value="0.002"/>         <!-- 测距分辨率: 2mm -->
 
@@ -35,6 +36,8 @@
 
   <!-- ROS 话题名称 (固定，与真实驱动保持一致) -->
   <xacro:property name="lidar_topic" value="/livox/lidar"/>
+  <!-- imu话题 -->
+  <xacro:property name="imu_topic" value="/livox/imu"/> 
 
   <!-- ============================================================
        惯性矩阵计算宏 - 用于动力学仿真
@@ -121,6 +124,35 @@
     <!-- ============================================================
          Gazebo 传感器配置
          ============================================================ -->
+
+    <!-- IMU 传感器配置 (BMI088 六轴 IMU) -->
+    <gazebo reference="${name}_imu">
+      <sensor name="${name}_imu_sensor" type="imu">
+        <always_on>true</always_on>
+        <update_rate>200</update_rate>
+        <imu>
+          <angular_velocity>
+            <x><noise type="gaussian"><mean>0.0</mean><stddev>0.00001</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0.0</mean><stddev>0.00001</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0.0</mean><stddev>0.00001</stddev></noise></z>
+          </angular_velocity>
+          <linear_acceleration>
+            <x><noise type="gaussian"><mean>0.0</mean><stddev>0.0001</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0.0</mean><stddev>0.0001</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0.0</mean><stddev>0.0001</stddev></noise></z>
+          </linear_acceleration>
+        </imu>
+        <plugin name="${name}_imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+          <ros>
+            <namespace>/</namespace>
+            <remapping>~/out:=${imu_topic}</remapping>
+          </ros>
+          <initial_orientation_as_reference>false</initial_orientation_as_reference>
+          <frame_name>${name}_imu</frame_name>
+        </plugin>
+      </sensor>
+    </gazebo>
+
     <gazebo reference="${name}">
       <sensor type="ray" name="${name}">
         <pose>0 0 0 0 0 0</pose>
@@ -130,12 +162,12 @@
         <!-- Mid-360 点云仿真插件 -->
         <plugin name="${name}_plugin" filename="libmid360_plugin.so">
 
-          <!-- 射线扫描配置 -->
+          <!-- 射线扫描配置 (仅用于Gazebo内部，实际扫描由CSV文件定义) -->
           <ray>
             <scan>
               <!-- 水平扫描: 360度全向覆盖 -->
               <horizontal>
-                <samples>100</samples>
+                <samples>10</samples>
                 <resolution>1</resolution>
                 <min_angle>0</min_angle>
                 <max_angle>${2*M_PI}</max_angle>
@@ -143,7 +175,7 @@
 
               <!-- 垂直扫描: -7.22度 到 +55.22度 (非重复扫描) -->
               <vertical>
-                <samples>360</samples>
+                <samples>10</samples>
                 <resolution>1</resolution>
                 <min_angle>${-7.22/180*M_PI}</min_angle>
                 <max_angle>${55.22/180*M_PI}</max_angle>
@@ -171,7 +203,7 @@
           <samples>${point_rate / update_rate}</samples>
           <!-- 降采样因子: 减少实际射线数量以提高性能 -->
           <!-- 实际射线数 = samples / downsample, 值越大性能越好但精度越低 -->
-          <downsample>10</downsample>
+          <downsample>1</downsample>
           <csv_file_name>$(find mid360_simulation)/scan_mode/mid360.csv</csv_file_name>
           <topic>${lidar_topic}</topic>
 

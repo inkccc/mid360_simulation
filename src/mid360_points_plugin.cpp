@@ -200,13 +200,48 @@ void Mid360PointsPlugin::OnNewLaserScans()
     msgs::LaserScan* scan = laserMsg_.mutable_scan();
     InitializeScan(scan);
 
-    // 创建点云消息
-    sensor_msgs::msg::PointCloud cloud;
-    cloud.header.stamp = rosNode_->get_clock()->now();
-    cloud.header.frame_id = raySensor_->Name();
-    auto& clouds = cloud.points;
+    // 获取仿真时间 (纳秒)
+    double sim_time_sec = world->SimTime().Double();
 
-    // 遍历所有射线，生成点云
+    // 创建 PointCloud2 消息 (PointXYZI + timestamp 格式)
+    sensor_msgs::msg::PointCloud2 cloud2;
+    cloud2.header.stamp.sec = static_cast<int32_t>(sim_time_sec);
+    cloud2.header.stamp.nanosec = static_cast<uint32_t>((sim_time_sec - cloud2.header.stamp.sec) * 1e9);
+    cloud2.header.frame_id = raySensor_->Name();
+
+    // 设置点云字段 (x, y, z, intensity, timestamp)
+    cloud2.fields.resize(5);
+    cloud2.fields[0].name = "x";
+    cloud2.fields[0].offset = 0;
+    cloud2.fields[0].datatype = sensor_msgs::msg::PointField::FLOAT32;
+    cloud2.fields[0].count = 1;
+    cloud2.fields[1].name = "y";
+    cloud2.fields[1].offset = 4;
+    cloud2.fields[1].datatype = sensor_msgs::msg::PointField::FLOAT32;
+    cloud2.fields[1].count = 1;
+    cloud2.fields[2].name = "z";
+    cloud2.fields[2].offset = 8;
+    cloud2.fields[2].datatype = sensor_msgs::msg::PointField::FLOAT32;
+    cloud2.fields[2].count = 1;
+    cloud2.fields[3].name = "intensity";
+    cloud2.fields[3].offset = 12;
+    cloud2.fields[3].datatype = sensor_msgs::msg::PointField::FLOAT32;
+    cloud2.fields[3].count = 1;
+    cloud2.fields[4].name = "timestamp";
+    cloud2.fields[4].offset = 16;
+    cloud2.fields[4].datatype = sensor_msgs::msg::PointField::FLOAT64;
+    cloud2.fields[4].count = 1;
+
+    cloud2.point_step = 24;  // 4 floats (16 bytes) + 1 double (8 bytes)
+    cloud2.height = 1;
+    cloud2.is_dense = true;
+    cloud2.is_bigendian = false;
+
+    // 收集有效点
+    std::vector<uint8_t> point_data;
+    point_data.reserve(points_pair.size() * cloud2.point_step);
+
+    size_t point_count = 0;
     for (auto& pair : points_pair)
     {
         auto range = rayShape_->GetRange(pair.first);
@@ -214,7 +249,7 @@ void Mid360PointsPlugin::OnNewLaserScans()
         // 过滤超出范围的点
         if (range >= RangeMax() || range <= RangeMin())
         {
-            range = 0;
+            continue;
         }
 
         // 计算点云坐标
@@ -224,12 +259,28 @@ void Mid360PointsPlugin::OnNewLaserScans()
         auto axis = ray * ignition::math::Vector3d(1.0, 0.0, 0.0);
         auto point = range * axis;
 
-        // 添加点到点云
-        clouds.emplace_back();
-        clouds.back().x = point.X();
-        clouds.back().y = point.Y();
-        clouds.back().z = point.Z();
+        // 写入 x, y, z, intensity
+        float x = static_cast<float>(point.X());
+        float y = static_cast<float>(point.Y());
+        float z = static_cast<float>(point.Z());
+        float intensity = 100.0f;
+        // 每个点的时间戳 = 仿真时间 + 点在扫描中的相对时间
+        double timestamp = sim_time_sec + rotate_info.time;
+
+        size_t offset = point_data.size();
+        point_data.resize(offset + cloud2.point_step);
+        memcpy(&point_data[offset], &x, sizeof(float));
+        memcpy(&point_data[offset + 4], &y, sizeof(float));
+        memcpy(&point_data[offset + 8], &z, sizeof(float));
+        memcpy(&point_data[offset + 12], &intensity, sizeof(float));
+        memcpy(&point_data[offset + 16], &timestamp, sizeof(double));
+        point_count++;
     }
+
+    // 设置点云数据
+    cloud2.width = point_count;
+    cloud2.row_step = cloud2.point_step * cloud2.width;
+    cloud2.data = std::move(point_data);
 
     // 发布 Gazebo 内部消息
     if (scanPub_ && scanPub_->HasConnections())
@@ -237,10 +288,7 @@ void Mid360PointsPlugin::OnNewLaserScans()
         scanPub_->Publish(laserMsg_);
     }
 
-    // 转换并发布 ROS2 PointCloud2 消息
-    sensor_msgs::msg::PointCloud2 cloud2;
-    sensor_msgs::convertPointCloudToPointCloud2(cloud, cloud2);
-    cloud2.header = cloud.header;
+    // 发布 ROS2 PointCloud2 消息
     cloudPub_->publish(cloud2);
 }
 
@@ -344,12 +392,12 @@ double Mid360PointsPlugin::AngleResolution() const
 
 double Mid360PointsPlugin::RangeMin() const
 {
-    return rayShape_ ? rayShape_->GetMinRange() : -1;
+    return minDist_;
 }
 
 double Mid360PointsPlugin::RangeMax() const
 {
-    return rayShape_ ? rayShape_->GetMaxRange() : -1;
+    return maxDist_;
 }
 
 double Mid360PointsPlugin::RangeResolution() const
